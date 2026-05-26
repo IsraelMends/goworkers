@@ -26,3 +26,7 @@ type Queue interface {
 	// MoveToDLQ move um job para o Dead Letter Queue.
 	MoveToDLQ(ctx context.Context, job *domain.Job) error
 }
+
+func (q Queue) UpdateStatus(ctx context.Context, d string, failed domain.JobStatus, s string) any {
+	panic("unimplemented")
+}

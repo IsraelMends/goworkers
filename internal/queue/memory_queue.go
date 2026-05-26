@@ -52,6 +52,21 @@ func (q *MemoryQueue) Dequeue(ctx context.Context, jobID string, status domain.J
 	return nil
 }
 
+func (q *MemoryQueue) UpdateStatus(ctx context.Context, jobID string, status domain.JobStatus, lastError string) error {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	job, ok := q.jobs[jobID]
+	if !ok {
+		return fmt.Errorf("job %s not found", jobID)
+	}
+
+	job.Status = status
+	job.LastError = lastError
+	job.UpdatedAt = time.Now()
+	return nil
+}
+
 func (q *MemoryQueue) GetJob(ctx context.Context, jobID string) (*domain.Job, error) {
 	q.mu.RUnlock()
 
