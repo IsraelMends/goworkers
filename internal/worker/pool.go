@@ -30,7 +30,7 @@ func NewPool(size int, q queue.Queue, r *handler.Registry, logger *slog.Logger) 
 	}
 }
 
-// Start inicia N workers. Bloqueia até o ctx ser cancelado e todos os workers finalizarem.
+// Start inicia N workers. Bloqueia até ctx ser cancelado e todos os workers finalizarem.
 func (p *Pool) Start(ctx context.Context) {
 	p.logger.Info("starting worker pool", "size", p.size)
 
@@ -48,8 +48,7 @@ func (p *Pool) Start(ctx context.Context) {
 
 func (p *Pool) runWorker(ctx context.Context, id int) {
 	p.logger.Info("worker started", "worker_id", id)
-	defer p.logger.Info("worker stopped",
-		"worker_id", id)
+	defer p.logger.Info("worker stopped", "worker_id", id)
 
 	for {
 		job, err := p.queue.Dequeue(ctx)
@@ -121,8 +120,8 @@ func (p *Pool) processJob(ctx context.Context, job *domain.Job, workerID int) {
 	}
 }
 
-// safeRun excuta o handler e recupera panics, tranformando em error.
-func safeRun(ctx context.Context, fn domain.HandleFunc, job *domain.Job) (err error) {
+// safeRun executa o handler e recupera panics, transformando em error.
+func safeRun(ctx context.Context, fn domain.HandlerFunc, job *domain.Job) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("panic: %v", r)
@@ -131,7 +130,7 @@ func safeRun(ctx context.Context, fn domain.HandleFunc, job *domain.Job) (err er
 	return fn(ctx, job)
 }
 
-// backoff retorna o delay de retry com exponencial backoff + jitter.
+// backoff retorna o delay de retry com exponential backoff + jitter.
 func backoff(attempt int) time.Duration {
 	base := time.Duration(attempt*attempt) * time.Second
 	jitter := time.Duration(rand.Int63n(int64(time.Second)))

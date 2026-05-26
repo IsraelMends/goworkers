@@ -29,4 +29,4 @@ type Job struct {
 	Result      json.RawMessage `json:"result,omitempty"`
 }
 
-type HandleFunc func(ctx context.Context, job *Job) error
+type HandlerFunc func(ctx context.Context, job *Job) error

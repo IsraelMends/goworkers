@@ -10,18 +10,18 @@ import (
 // Registry mapeia JobType -> HandleFunc
 type Registry struct {
 	mu       sync.RWMutex
-	handlers map[string]domain.HandleFunc
+	handlers map[string]domain.HandlerFunc
 }
 
 func NewRegistry() *Registry {
 	return &Registry{
-		handlers: make(map[string]domain.HandleFunc),
+		handlers: make(map[string]domain.HandlerFunc),
 	}
 }
 
 // Register cadastra um handle para um tipo de job.
 // Retorna erro se o tipo já estiver registrado.
-func (r *Registry) Register(jobType string, fn domain.HandleFunc) error {
+func (r *Registry) Register(jobType string, fn domain.HandlerFunc) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -33,7 +33,7 @@ func (r *Registry) Register(jobType string, fn domain.HandleFunc) error {
 }
 
 // Get retorna o handler para um tipo de job.
-func (r *Registry) Get(jobType string) (domain.HandleFunc, error) {
+func (r *Registry) Get(jobType string) (domain.HandlerFunc, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
