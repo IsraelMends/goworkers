@@ -37,19 +37,13 @@ func (q *MemoryQueue) Enqueue(ctx context.Context, job *domain.Job) error {
 	}
 }
 
-func (q *MemoryQueue) Dequeue(ctx context.Context, jobID string, status domain.JobStatus, lastError string) error {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-
-	job, ok := q.jobs[jobID]
-	if !ok {
-		return fmt.Errorf("job %s not found", jobID)
+func (q *MemoryQueue) Dequeue(ctx context.Context) (*domain.Job, error) {
+	select {
+	case job := <-q.ch:
+		return job, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
 	}
-
-	job.Status = status
-	job.LastError = lastError
-	job.UpdatedAt = time.Now()
-	return nil
 }
 
 func (q *MemoryQueue) UpdateStatus(ctx context.Context, jobID string, status domain.JobStatus, lastError string) error {
@@ -68,7 +62,8 @@ func (q *MemoryQueue) UpdateStatus(ctx context.Context, jobID string, status dom
 }
 
 func (q *MemoryQueue) GetJob(ctx context.Context, jobID string) (*domain.Job, error) {
-	q.mu.RUnlock()
+	q.mu.RLock()
+	defer q.mu.RUnlock()
 
 	job, ok := q.jobs[jobID]
 	if !ok {

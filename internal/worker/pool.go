@@ -30,6 +30,11 @@ func NewPool(size int, q queue.Queue, r *handler.Registry, logger *slog.Logger) 
 	}
 }
 
+// Wait bloqueia até todos os workers finalizarem.
+func (p *Pool) Wait() {
+	p.wg.Wait()
+}
+
 // Start inicia N workers. Bloqueia até ctx ser cancelado e todos os workers finalizarem.
 func (p *Pool) Start(ctx context.Context) {
 	p.logger.Info("starting worker pool", "size", p.size)
