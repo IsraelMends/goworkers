@@ -20,8 +20,17 @@ func main() {
 	cfg := config.Load()
 	log := logger.New(cfg.LogLevel)
 
+	var q queue.Queue
+	if cfg.RedisAddr != "" {
+		q = queue.NewRedisQueue(cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB)
+		log.Info("using redis queue", "addr", cfg.RedisAddr)
+	} else {
+		q = queue.NewMemoryQueue(cfg.QueueBufferSize)
+		log.Info("using in-memory queue")
+	}
+
 	// Componentes
-	q := queue.NewMemoryQueue(cfg.QueueBufferSize)
+
 	registry := handler.NewRegistry()
 
 	// Register handlers

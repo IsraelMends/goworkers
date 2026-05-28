@@ -1,0 +1,23 @@
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    command: redis-server --save 60 1 --loglevel warnig
+    volumes:
+      - redis_data:/data
+  
+  app:
+    build:
+      context: ..
+      dockerfile: deployments/Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - REDIS_ADDR=redis:6379
+      - WORKER_COUNT=4
+      - LOG_LEVEL=info
+    depends_on:
+      - redis
+volumes:
+  redis_data:
