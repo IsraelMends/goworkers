@@ -40,13 +40,16 @@ func (q *MemoryQueue) Enqueue(ctx context.Context, job *domain.Job) error {
 func (q *MemoryQueue) Dequeue(ctx context.Context) (*domain.Job, error) {
 	select {
 	case job := <-q.ch:
-		return job, nil
+		// Retorna uma cópia para evitar data races: quem processa o job
+		// tem exclusividade sobre sua cópia, sem interferir no mapa interno.
+		jobCopy := *job
+		return &jobCopy, nil
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
 }
 
-func (q *MemoryQueue) UpdateStatus(ctx context.Context, jobID string, status domain.JobStatus, lastError string) error {
+func (q *MemoryQueue) UpdateStatus(ctx context.Context, jobID string, status domain.JobStatus, lastError string, attempts int) error {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
@@ -57,6 +60,9 @@ func (q *MemoryQueue) UpdateStatus(ctx context.Context, jobID string, status dom
 
 	job.Status = status
 	job.LastError = lastError
+	if attempts > 0 {
+		job.Attempts = attempts
+	}
 	job.UpdatedAt = time.Now()
 	return nil
 }
@@ -69,7 +75,9 @@ func (q *MemoryQueue) GetJob(ctx context.Context, jobID string) (*domain.Job, er
 	if !ok {
 		return nil, fmt.Errorf("job %s not found", jobID)
 	}
-	return job, nil
+	// Retorna cópia para não expor o ponteiro interno do mapa.
+	jobCopy := *job
+	return &jobCopy, nil
 }
 
 func (q *MemoryQueue) ListJobs(ctx context.Context) ([]*domain.Job, error) {
@@ -78,7 +86,9 @@ func (q *MemoryQueue) ListJobs(ctx context.Context) ([]*domain.Job, error) {
 
 	result := make([]*domain.Job, 0, len(q.jobs))
 	for _, j := range q.jobs {
-		result = append(result, j)
+		// Cópias para evitar data races nos campos dos jobs.
+		jobCopy := *j
+		result = append(result, &jobCopy)
 	}
 	return result, nil
 }
@@ -90,5 +100,7 @@ func (q *MemoryQueue) MoveToDLQ(ctx context.Context, job *domain.Job) error {
 	job.Status = domain.StatusDead
 	job.UpdatedAt = time.Now()
 	q.dlq[job.ID] = job
+	// Atualiza o mapa principal também para que GetJob reflita o status dead.
+	q.jobs[job.ID] = job
 	return nil
 }

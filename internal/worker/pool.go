@@ -94,14 +94,14 @@ func (p *Pool) processJob(ctx context.Context, job *domain.Job, workerID int) {
 	metrics.WorkersActive.Inc()
 	defer metrics.WorkersActive.Dec()
 
-	// Marca como processing
-	_ = p.queue.UpdateStatus(ctx, job.ID, domain.StatusProcessing, "")
+	// Marca como processing (sem alterar attempts ainda)
+	_ = p.queue.UpdateStatus(ctx, job.ID, domain.StatusProcessing, "", 0)
 
 	// Obtém o handler
 	fn, err := p.registry.Get(job.Type)
 	if err != nil {
 		logger.Error("no handler found", "error", err)
-		_ = p.queue.UpdateStatus(ctx, job.ID, domain.StatusFailed, err.Error())
+		_ = p.queue.UpdateStatus(ctx, job.ID, domain.StatusFailed, err.Error(), 0)
 		metrics.JobsFailed.WithLabelValues(job.Type).Inc()
 		return
 	}
@@ -118,11 +118,15 @@ func (p *Pool) processJob(ctx context.Context, job *domain.Job, workerID int) {
 
 	if jobErr == nil {
 		logger.Info("job completed", "duration_ms", duration.Milliseconds())
-		_ = p.queue.UpdateStatus(ctx, job.ID, domain.StatusCompleted, "")
+		// Persiste o status e o número de tentativas no store canônico.
+		_ = p.queue.UpdateStatus(ctx, job.ID, domain.StatusCompleted, "", job.Attempts)
 		metrics.JobsCompleted.WithLabelValues(job.Type).Inc()
 		metrics.JobDuration.WithLabelValues(job.Type, "completed").Observe(duration.Seconds())
 		return
 	}
+
+	// Persiste o erro no job antes de decidir retry ou DLQ.
+	job.LastError = jobErr.Error()
 
 	logger.Warn("job failed", "error", jobErr, "duration_ms", duration.Milliseconds())
 	metrics.JobsFailed.WithLabelValues(job.Type).Inc()

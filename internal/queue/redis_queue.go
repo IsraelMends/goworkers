@@ -62,7 +62,7 @@ func (q *RedisQueue) Dequeue(ctx context.Context) (*domain.Job, error) {
 	return q.GetJob(ctx, jobID)
 }
 
-func (q *RedisQueue) UpdateStatus(ctx context.Context, jobID string, status domain.JobStatus, lastError string) error {
+func (q *RedisQueue) UpdateStatus(ctx context.Context, jobID string, status domain.JobStatus, lastError string, attempts int) error {
 	job, err := q.GetJob(ctx, jobID)
 	if err != nil {
 		return err
@@ -70,6 +70,9 @@ func (q *RedisQueue) UpdateStatus(ctx context.Context, jobID string, status doma
 
 	job.Status = status
 	job.LastError = lastError
+	if attempts > 0 {
+		job.Attempts = attempts
+	}
 	job.UpdatedAt = time.Now()
 
 	data, err := json.Marshal(job)
