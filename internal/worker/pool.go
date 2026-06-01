@@ -4,29 +4,32 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"math/rand"
+	"math/rand/v2"
 	"sync"
 	"time"
 
 	"github.com/IsraelMends/goworkers/internal/domain"
 	"github.com/IsraelMends/goworkers/internal/handler"
+	"github.com/IsraelMends/goworkers/internal/metrics"
 	"github.com/IsraelMends/goworkers/internal/queue"
 )
 
 type Pool struct {
-	size     int
-	queue    queue.Queue
-	registry *handler.Registry
-	logger   *slog.Logger
-	wg       sync.WaitGroup
+	size       int
+	jobTimeout time.Duration
+	queue      queue.Queue
+	registry   *handler.Registry
+	logger     *slog.Logger
+	wg         sync.WaitGroup
 }
 
-func NewPool(size int, q queue.Queue, r *handler.Registry, logger *slog.Logger) *Pool {
+func NewPool(size int, q queue.Queue, r *handler.Registry, logger *slog.Logger, jobTimeout time.Duration) *Pool {
 	return &Pool{
-		size:     size,
-		queue:    q,
-		registry: r,
-		logger:   logger,
+		size:       size,
+		jobTimeout: jobTimeout,
+		queue:      q,
+		registry:   r,
+		logger:     logger,
 	}
 }
 
@@ -63,6 +66,12 @@ func (p *Pool) runWorker(ctx context.Context, id int) {
 				return
 			}
 			p.logger.Error("failed to dequeue", "error", err, "worker_id", id)
+			// Aguarda antes de tentar novamente para evitar spin loop
+			select {
+			case <-time.After(2 * time.Second):
+			case <-ctx.Done():
+				return
+			}
 			continue
 		}
 
@@ -81,6 +90,10 @@ func (p *Pool) processJob(ctx context.Context, job *domain.Job, workerID int) {
 
 	logger.Info("processing job")
 
+	// Rastreia worker ativo
+	metrics.WorkersActive.Inc()
+	defer metrics.WorkersActive.Dec()
+
 	// Marca como processing
 	_ = p.queue.UpdateStatus(ctx, job.ID, domain.StatusProcessing, "")
 
@@ -89,30 +102,37 @@ func (p *Pool) processJob(ctx context.Context, job *domain.Job, workerID int) {
 	if err != nil {
 		logger.Error("no handler found", "error", err)
 		_ = p.queue.UpdateStatus(ctx, job.ID, domain.StatusFailed, err.Error())
+		metrics.JobsFailed.WithLabelValues(job.Type).Inc()
 		return
 	}
 
-	// Cria um contexto com timeout por job (30s padrão)
-	jobCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	// Cria um contexto com timeout por job (configurável)
+	jobCtx, cancel := context.WithTimeout(ctx, p.jobTimeout)
 	defer cancel()
 
-	// Executa o handler com proteção contra panic
 	jobErr := safeRun(jobCtx, fn, job)
+
+	// Executa o handler com proteção contra panic
 	duration := time.Since(start)
 	job.Attempts++
 
 	if jobErr == nil {
 		logger.Info("job completed", "duration_ms", duration.Milliseconds())
 		_ = p.queue.UpdateStatus(ctx, job.ID, domain.StatusCompleted, "")
+		metrics.JobsCompleted.WithLabelValues(job.Type).Inc()
+		metrics.JobDuration.WithLabelValues(job.Type, "completed").Observe(duration.Seconds())
 		return
 	}
 
 	logger.Warn("job failed", "error", jobErr, "duration_ms", duration.Milliseconds())
+	metrics.JobsFailed.WithLabelValues(job.Type).Inc()
+	metrics.JobDuration.WithLabelValues(job.Type, "failed").Observe(duration.Seconds())
 
 	// Decide entre retry e DLQ
 	if job.Attempts < job.MaxAttempts {
 		delay := backoff(job.Attempts)
 		logger.Info("scheduling retry", "delay", delay, "attempt", job.Attempts)
+		metrics.JobRetries.WithLabelValues(job.Type).Inc()
 
 		go func() {
 			time.Sleep(delay)
@@ -121,6 +141,7 @@ func (p *Pool) processJob(ctx context.Context, job *domain.Job, workerID int) {
 		}()
 	} else {
 		logger.Warn("moving to DLQ", "attempts", job.Attempts)
+		metrics.JobsDeadLettered.WithLabelValues(job.Type).Inc()
 		_ = p.queue.MoveToDLQ(ctx, job)
 	}
 }
@@ -137,7 +158,8 @@ func safeRun(ctx context.Context, fn domain.HandlerFunc, job *domain.Job) (err e
 
 // backoff retorna o delay de retry com exponential backoff + jitter.
 func backoff(attempt int) time.Duration {
-	base := time.Duration(attempt*attempt) * time.Second
-	jitter := time.Duration(rand.Int63n(int64(time.Second)))
+	base := time.Duration(1<<attempt) * time.Second
+	maxJitter := time.Second
+	jitter := time.Duration(rand.Int64N(int64(maxJitter)))
 	return base + jitter
 }
