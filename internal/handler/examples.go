@@ -30,7 +30,7 @@ func SendEmail(ctx context.Context, job *domain.Job) error {
 		return ctx.Err()
 	}
 
-	fmt.Printf("[email] sent to=%s subject%s\n", p.To, p.Subject)
+	fmt.Printf("[email] sent to=%s subject=%s\n", p.To, p.Subject)
 	return nil
 }
 
@@ -42,4 +42,19 @@ func GenerateReport(ctx context.Context, job *domain.Job) error {
 		return ctx.Err()
 	}
 	return nil
+}
+
+// AlwaysFail é um handler para testar a lógica de retry e DLQ.
+func AlwaysFail(ctx context.Context, job *domain.Job) error {
+	return fmt.Errorf("intentional failure for testing")
+}
+
+// SlowJob simula um job que estoura o timeout.
+func SlowJob(ctx context.Context, job *domain.Job) error {
+	select {
+	case <-time.After(5 * time.Minute):
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
